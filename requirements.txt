@@ -1,0 +1,12 @@
+Flask==0.9
+Jinja2==2.6
+Werkzeug==0.8.3
+argparse==1.2.1
+behave==1.2.2
+docopt==0.5.0
+ipdb==0.7
+ipython==0.13.1
+nose==1.2.1
+parse==1.6.1
+requests==1.1.0
+wsgiref==0.1.2

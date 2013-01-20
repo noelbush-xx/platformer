@@ -1,0 +1,26 @@
+Statement: Assault weapons should be banned.
+Possible values: agree / disagree
+
+Memo breakdown
+==============
+- memo 0:
+  - key: assertion
+  - value: Assault weapons should be banned.
+- memo 1:
+  - key: boolean
+  - value: True
+- memo 2:
+  - key: boolean
+  - value: False
+
+agree position (link)
+--------------
+- memo 3:
+  - key: [memo 0]
+  - value: [memo 1]
+
+disagree position (link)
+-----------------
+- memo 3:
+  - key: [memo 0]
+  - value: [memo 2]
