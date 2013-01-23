@@ -7,7 +7,7 @@ import tempfile
 from time import sleep
 import unittest
 
-import platformer
+from platformer import Node
 
 
 class TestNodes(unittest.TestCase):
@@ -16,10 +16,10 @@ class TestNodes(unittest.TestCase):
 
     def setUp(self):
         self.db_fd, self.db_filename = tempfile.mkstemp()
-        platformer.app.config['DATABASE'] = 'sqlite://{}'.format(self.db_filename)
-        platformer.app.config['TESTING'] = True
-        platformer.setup_app()
-        self.app = platformer.app.test_client()
+        config = {'DATABASE': 'sqlite://{}'.format(self.db_filename),
+                  'TESTING': True}
+        self.node = Node(config)
+        self.client = self.node.app.test_client()
 
 
     def tearDown(self):
@@ -31,7 +31,7 @@ class TestNodes(unittest.TestCase):
         """
         The test node responds to a HEAD request.
         """
-        rv = self.app.head('/')
+        rv = self.client.head('/')
         assert rv.status_code == 200
 
 
@@ -40,7 +40,10 @@ class TestNodes(unittest.TestCase):
         A node can be told about a peer.
         """
         peer_info = {'url': 'http://localhost:{}'.format(self.TEST_PORT + 1)}
-        rv = self.app.post('/peer', data=json.dumps(peer_info))
-        assert rv.status_code == 201, rv.data
+        rv = self.client.post('/peer', data=json.dumps(peer_info))
+        assert rv.status_code == 201
 
+        data = json.loads(rv.data)
+        rv = self.client.get('/peer/{}'.format(data['id']))
+        assert rv.status_code == 200
 
