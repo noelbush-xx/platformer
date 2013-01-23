@@ -43,7 +43,10 @@ class TestNodes(unittest.TestCase):
         rv = self.client.post('/peer', data=json.dumps(peer_info))
         assert rv.status_code == 201
 
-        data = json.loads(rv.data)
-        rv = self.client.get('/peer/{}'.format(data['id']))
+        post_response = json.loads(rv.data)
+        rv = self.client.get('/peer/{}'.format(post_response['id']))
         assert rv.status_code == 200
+
+        get_response = json.loads(rv.data)
+        assert get_response['url'] == peer_info['url']
 
