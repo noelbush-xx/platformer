@@ -25,6 +25,13 @@ class Peer(db.Model):
     health = db.Column(db.Float, nullable=False, default=1.0)
     last_checked = db.Column(db.DateTime, nullable=False, default=datetime.utcnow())
 
+
+    @validates('url')
+    def validate_url(self, key, url):
+        return url if isinstance(url, unicode) else unicode(url)
+
+
     @validates('health')
     def validate_health(self, key, health):
         assert 0.0 <= health <= 1.0
+        return health
