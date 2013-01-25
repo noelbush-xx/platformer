@@ -1,4 +1,5 @@
 import json
+import logging
 from multiprocessing import Process
 import os
 from os.path import abspath, dirname, join
@@ -10,6 +11,11 @@ from time import sleep
 import unittest
 
 from platformer import Node
+
+
+logging.basicConfig()
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class CouldNotStartPeerApp(Exception):
@@ -30,6 +36,7 @@ def start_node(name, port):
 
 def start_node_app(peer, port):
     peer_proc = Process(target=peer.app.run, kwargs={'port': port})
+    logger.debug('Starting node app on port {}.'.format(port))
     peer_proc.start()
 
     peer_url = 'http://localhost:{}'.format(port)
@@ -133,6 +140,7 @@ class TestNodes(unittest.TestCase):
                 self.client.post('/peer', data=json.dumps({'url': peer_url}))
 
             # Verify that our node has the list of the 10 others.
+            logger.debug('Verifying list of peers from test node.')
             response = self.client.get('/peer')
             get_response = json.loads(response.data)
             assert len(get_response['objects']) == 10
@@ -141,6 +149,8 @@ class TestNodes(unittest.TestCase):
             # (For this we have to start our own node's app.)
             _, node_proc, node_url = start_node_app(self.node, self.TEST_PORT)
             for peer, _, peer_url in peers:
+                logger.debug("Asking peer at {} to get test node's list "
+                             "of peers.".format(peer_url))
                 peer.get_peer_list_from(node_url)
 
                 # Now verify that the peer has the full list of *9* peers
@@ -150,6 +160,7 @@ class TestNodes(unittest.TestCase):
                 assert len(get_response['objects']) == 9
 
         finally:
+            logger.debug('Terminating test node and peers.')
             node_proc.terminate()
             for _, peer_proc, _ in peers:
                 peer_proc.terminate()
