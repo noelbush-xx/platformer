@@ -8,7 +8,7 @@ class Memo(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     key = db.Column(db.Unicode, nullable=False)
     value = db.Column(db.Unicode, nullable=False)
-    reliability = db.relationship('ReliabilityMetadata', uselist=False, backref='memo')
+    reliability = db.relationship('ReliabilityMetadata')
 
 
 class ReliabilityMetadata(db.Model):
