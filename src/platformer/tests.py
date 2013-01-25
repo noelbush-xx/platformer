@@ -130,10 +130,11 @@ class TestNodes(unittest.TestCase):
         """
         Nodes can get lists of peers from one another.
         """
+        PEER_COUNT = 5
         peers = []
         try:
-            # Create 10 other nodes and tell our node about them.
-            for n in xrange(1, 11):
+            # Create some other nodes and tell our node about them.
+            for n in xrange(1, PEER_COUNT + 1):
                 peer, peer_proc, peer_url = start_node('test_{}'.format(n),
                                                        self.TEST_PORT + n)
                 peers.append((peer, peer_proc, peer_url))
@@ -143,7 +144,7 @@ class TestNodes(unittest.TestCase):
             logger.debug('Verifying list of peers from test node.')
             response = self.client.get('/peer')
             get_response = json.loads(response.data)
-            assert len(get_response['objects']) == 10
+            assert len(get_response['objects']) == PEER_COUNT
 
             # Now tell each node to talk to our node and get its list of peers.
             # (For this we have to start our own node's app.)
@@ -153,11 +154,11 @@ class TestNodes(unittest.TestCase):
                              "of peers.".format(peer_url))
                 peer.get_peer_list_from(node_url)
 
-                # Now verify that the peer has the full list of *9* peers
-                # (it should have excluded itself).
+                # Now verify that the peer has the full list of *PEER_COUNT - 1*
+                # peers (it should have excluded itself).
                 response = requests.get('{}/peer'.format(peer_url))
                 get_response = json.loads(response.content)
-                assert len(get_response['objects']) == 9
+                assert len(get_response['objects']) == PEER_COUNT - 1
 
         finally:
             logger.debug('Terminating test node and peers.')
