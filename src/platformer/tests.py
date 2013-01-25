@@ -2,6 +2,7 @@ import json
 from multiprocessing import Process
 import os
 from os.path import abspath, dirname, join
+import requests
 import subprocess
 import sys
 import tempfile
@@ -11,12 +12,40 @@ import unittest
 from platformer import Node
 
 
-def start_peer(name, port):
+class CouldNotStartPeerApp(Exception):
+
+    def __init__(self, url):
+        self.url = url
+
+
+    def __str__(self):
+        return ('Could not start peer app listening at {} '
+                ' within configured time limit.'.format(url))
+
+
+def start_node(name, port):
     peer = Node(name, reinit_db=True)
+    return start_node_app(peer, port)
+
+
+def start_node_app(peer, port):
     peer_proc = Process(target=peer.app.run, kwargs={'port': port})
     peer_proc.start()
 
     peer_url = 'http://localhost:{}'.format(port)
+
+    # Give the app time to start.
+    wait, success = 2.0, False
+    while not success and wait > 0.0:
+        try:
+            response = requests.get(peer_url)
+            success = True
+        except:
+            wait -= 0.1
+            sleep(0.1)
+
+    if not success:
+        raise
 
     return peer, peer_proc, peer_url
 
@@ -44,8 +73,8 @@ class TestNodes(unittest.TestCase):
         """
         The test node responds to a HEAD request.
         """
-        rv = self.client.head('/')
-        assert rv.status_code == 200
+        response = self.client.head('/')
+        assert response.status_code == 200
 
 
     def test_add_peer(self):
@@ -53,15 +82,26 @@ class TestNodes(unittest.TestCase):
         A node can be told about a peer.
         """
         peer_info = {'url': 'http://localhost:{}'.format(self.TEST_PORT + 1)}
-        rv = self.client.post('/peer', data=json.dumps(peer_info))
-        assert rv.status_code == 201
+        response = self.client.post('/peer', data=json.dumps(peer_info))
+        assert response.status_code == 201
 
-        post_response = json.loads(rv.data)
-        rv = self.client.get('/peer/{}'.format(post_response['id']))
-        assert rv.status_code == 200
+        post_response = json.loads(response.data)
+        response = self.client.get('/peer/{}'.format(post_response['id']))
+        assert response.status_code == 200
 
-        get_response = json.loads(rv.data)
+        get_response = json.loads(response.data)
         assert get_response['url'] == peer_info['url']
+
+
+    def test_is_me(self):
+        """
+        A node can determine that a purported peer is, in fact, itself.
+        """
+        try:
+            peer, peer_proc, peer_url = start_node('test_01', self.TEST_PORT)
+            assert peer.is_me(peer_url)
+        finally:
+            peer_proc.terminate()
 
 
     def test_check_peer(self):
@@ -69,8 +109,47 @@ class TestNodes(unittest.TestCase):
         A node can check on an existing peer.
         """
         try:
-            peer, peer_proc, peer_url = start_peer('test_01', self.TEST_PORT)
+            peer, peer_proc, peer_url = start_node('test_01', self.TEST_PORT)
+            assert self.node.check_peer(peer_url)
+
+            # Check again -- the second time should (transparently to us)
+            # cause our node to find an existing record and merely update it.
             assert self.node.check_peer(peer_url)
         finally:
             peer_proc.terminate()
 
+
+    def test_peer_lists(self):
+        """
+        Nodes can get lists of peers from one another.
+        """
+        peers = []
+        try:
+            # Create 10 other nodes and tell our node about them.
+            for n in xrange(1, 11):
+                peer, peer_proc, peer_url = start_node('test_{}'.format(n),
+                                                       self.TEST_PORT + n)
+                peers.append((peer, peer_proc, peer_url))
+                self.client.post('/peer', data=json.dumps({'url': peer_url}))
+
+            # Verify that our node has the list of the 10 others.
+            response = self.client.get('/peer')
+            get_response = json.loads(response.data)
+            assert len(get_response['objects']) == 10
+
+            # Now tell each node to talk to our node and get its list of peers.
+            # (For this we have to start our own node's app.)
+            _, node_proc, node_url = start_node_app(self.node, self.TEST_PORT)
+            for peer, _, peer_url in peers:
+                peer.get_peer_list_from(node_url)
+
+                # Now verify that the peer has the full list of *9* peers
+                # (it should have excluded itself).
+                response = requests.get('{}/peer'.format(peer_url))
+                get_response = json.loads(response.content)
+                assert len(get_response['objects']) == 9
+
+        finally:
+            node_proc.terminate()
+            for _, peer_proc, _ in peers:
+                peer_proc.terminate()

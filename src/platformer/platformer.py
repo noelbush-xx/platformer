@@ -10,6 +10,9 @@ Options:
 
 """
 from datetime import datetime
+import json
+import random
+import string
 
 from docopt import docopt
 
@@ -24,6 +27,7 @@ from models import (
     Memo,
     Peer,
     ReliabilityMetadata,
+    Secret,
 )
 
 
@@ -45,6 +49,7 @@ class Node(object):
         manager.create_api(Peer, url_prefix='',
                            methods=['GET', 'POST', 'PUT', 'DELETE'],
                            include_columns=['url'])
+        manager.create_api(Secret, url_prefix='', methods=['POST'])
 
         # Note that route definitions have to go here, because the app is not global.
         @self.app.route('/', methods=['HEAD'])
@@ -52,7 +57,37 @@ class Node(object):
             return ''
 
 
+    RANDOM_CHARS = string.ascii_letters + string.digits
+
+    def is_me(self, url):
+        """
+        Determining whether a peer is actually this node is tricky.  We cannot
+        just compare hostnames and ports, since a node may run on different
+        ports, use different hostnames (or IP addresses), or even not be running
+        a web app at all.
+
+        If we do have HTTP access to another node, the best thing we can do is
+        post a secret value to that node, then check in our own database to see
+        if we have the same secret value.  If we do, we know we're talking to
+        (about) ourselves.
+        """
+        secret = u''.join(random.choice(self.RANDOM_CHARS) for x in range(255))
+        response = requests.post('{}/secret'.format(url),
+                          data=json.dumps({'secret': secret}))
+
+        if response.status_code != 201:
+            raise PeerUnreachable(url)
+
+        with self.app.app_context():
+            found = db.session.query(Secret).filter(Secret.secret == secret).first()
+
+            return bool(found)
+
+
     def check_peer(self, url):
+        if self.is_me(url):
+            raise PeerIsMe
+
         url = unicode(url) if not isinstance(url, unicode) else url
         with self.app.app_context():
             peer = db.session.query(Peer).filter(Peer.url == url).first()
@@ -63,8 +98,8 @@ class Node(object):
                             health=0.0,
                             )
 
-            r = requests.head(url)
-            peer.active = r.status_code == 200
+            response = requests.head(url)
+            peer.active = response.status_code == 200
             peer.health = (peer.health + (1.0 if peer.active else 0.0)) / 2.0
             peer.last_checked = datetime.utcnow()
 
@@ -72,6 +107,35 @@ class Node(object):
             db.session.commit()
 
             return peer.active
+
+
+    def get_peer_list_from(self, url):
+        response = requests.get('{}/peer'.format(url))
+        get_response = json.loads(response.content)
+        for obj in get_response['objects']:
+            try:
+                self.check_peer(obj['url'])
+            except PeerIsMe:
+                # No problem in this case.
+                pass
+
+
+class PeerIsMe(Exception):
+    """
+    To be thrown when a node is asked to communicate with or store information
+    about a peer which is in fact itself.
+    """
+    pass
+
+
+class PeerUnreachable(Exception):
+
+    def __init__(self, url):
+        self.url = url
+
+
+    def __str__(self):
+        return 'Could not reach peer at {}.'.format(self.url)
 
 
 if __name__ == '__main__':
