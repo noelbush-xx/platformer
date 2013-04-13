@@ -18,6 +18,8 @@ from docopt import docopt
 
 import flask
 import flask.ext.restless
+from collections import namedtuple
+
 import flask.ext.sqlalchemy
 
 import requests
@@ -29,6 +31,9 @@ from models import (
     ReliabilityMetadata,
     Secret,
 )
+
+
+PeerStatusCheck = namedtuple('PeerStatus', ['active', 'last_checked'])
 
 
 class Node(object):
@@ -84,37 +89,69 @@ class Node(object):
             return bool(found)
 
 
-    def check_peer(self, url):
-        if self.is_me(url):
-            raise PeerIsMe
-
-        url = unicode(url) if not isinstance(url, unicode) else url
+    def get_or_create_peer_record(self, url):
         with self.app.app_context():
             peer = db.session.query(Peer).filter(Peer.url == url).first()
-
             if not peer:
                 peer = Peer(url=url,
                             active=False,
                             health=0.0,
                             )
+        return peer
 
-            response = requests.head(url)
-            peer.active = response.status_code == 200
-            peer.health = (peer.health + (1.0 if peer.active else 0.0)) / 2.0
-            peer.last_checked = datetime.utcnow()
+
+    def add_peer(self, url):
+        """
+        Add a record about a peer that exists at the given URL.  Don't add the
+        record if the peer is actually me (raise an exception then).  If I
+        already have a record about the peer, it will be updated.  Return
+        updated status information about the peer.
+        """
+        if self.is_me(url):
+            raise PeerIsMe
+
+        # Ensure URL is unicode.
+        url = unicode(url) if not isinstance(url, unicode) else url
+
+        peer = self.get_or_create_peer_record(url)
+
+        status = self.check_peer(url)
+        self.update_status(peer, status)
+        return status
+
+
+    def update_status(self, peer, status):
+        """
+        Update my record of the given peer using the information in status.
+        """
+        with self.app.app_context():
+            peer.active = status.active
+            peer.health = (peer.health + (1.0 if status.active else 0.0)) / 2.0
+            peer.last_checked = status.last_checked
 
             db.session.add(peer)
             db.session.commit()
 
-            return peer.active
+
+    def check_peer(self, url):
+        """
+        Check on the peer at the given URL and return status information.
+        """
+        response = requests.head(url)
+        return PeerStatusCheck(active=response.status_code == 200,
+                               last_checked=datetime.utcnow())
 
 
     def get_peer_list_from(self, url):
+        """
+        Ask a peer at the given URL for its peer list.  Add each one from
+        the list.
+        """
         response = requests.get('{}/peer'.format(url))
         get_response = json.loads(response.content)
         for obj in get_response['objects']:
             try:
-                self.check_peer(obj['url'])
+                self.add_peer(obj['url'])
             except PeerIsMe:
                 # No problem in this case.
                 pass

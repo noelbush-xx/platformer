@@ -57,7 +57,7 @@ def start_node_app(peer, port):
     return peer, peer_proc, peer_url
 
 
-class TestNodes(unittest.TestCase):
+class NodeTests(unittest.TestCase):
 
     # When tests need to create "real" nodes that listen on a web interface,
     # this is the first port number to use (more will be created consecutively).
@@ -88,14 +88,20 @@ class TestNodes(unittest.TestCase):
         """
         A node can be told about a peer.
         """
+
+        # Tell our test node about the peer.
         peer_info = {'url': 'http://localhost:{}'.format(self.TEST_PORT + 1)}
         response = self.client.post('/peer', data=json.dumps(peer_info))
         assert response.status_code == 201
 
+        # From the POST response, get the id that our test node used to store
+        # information about the peer.  Retrieve the newly created record from
+        # our test node using this id.
         post_response = json.loads(response.data)
         response = self.client.get('/peer/{}'.format(post_response['id']))
         assert response.status_code == 200
 
+        # Verify that the retrieved information is correct.
         get_response = json.loads(response.data)
         assert get_response['url'] == peer_info['url']
 
@@ -117,11 +123,13 @@ class TestNodes(unittest.TestCase):
         """
         try:
             peer, peer_proc, peer_url = start_node('test_01', self.TEST_PORT)
-            assert self.node.check_peer(peer_url)
+            status = self.node.check_peer(peer_url)
+            assert status.active
 
             # Check again -- the second time should (transparently to us)
             # cause our node to find an existing record and merely update it.
-            assert self.node.check_peer(peer_url)
+            status = self.node.check_peer(peer_url)
+            assert status.active
         finally:
             peer_proc.terminate()
 
